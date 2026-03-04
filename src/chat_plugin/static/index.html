@@ -3491,9 +3491,11 @@
           next.set(sessionKey, { ...s, sse, cwd: s.cwd || requestedCwd2, serverCwd: requestedCwd2 });
           return next;
         });
+        return sessionId;
       } catch (err) {
         console.error('[chat] failed to create session', err);
         if (activeKeyRef.current === sessionKey) setSseStatus('disconnected');
+        return null;
       }
     }, [handleWsMessage]);
 
@@ -3798,9 +3800,8 @@
         cwd: initialCwd,
         lastUpdated: nowIso,
       }]]));
-      connect(key);
       syncSessionHistory({ silent: true });
-    }, [connect, syncSessionHistory]);
+    }, [syncSessionHistory]);
 
     useEffect(() => {
       const onFocus = () => refreshHistory();
@@ -3912,19 +3913,22 @@
     }, []);
 
     // —— Send ————————————————————————————————————————————————————————
-    const sendMessage = useCallback((content, images) => {
+    const sendMessage = useCallback(async (content, images) => {
       const key = activeKeyRef.current;
-      const activeSession = key ? sessionsRef.current.get(key) : null;
-      const sessionId = activeSession?.sessionId || null;
+      let activeSession = key ? sessionsRef.current.get(key) : null;
+      let sessionId = activeSession?.sessionId || null;
 
+      // Lazy session creation: create on first real interaction
       if (!sessionId) {
-        // Visible feedback instead of silent return
-        setChronoItems(prev => [...prev, {
-          id: makeId(), type: 'text', role: 'system',
-          content: 'Warning: No active session. Message not sent.',
-          streaming: false, order: orderCounterRef.current++,
-        }]);
-        return;
+        sessionId = await connect(key);
+        if (!sessionId) {
+          setChronoItems(prev => [...prev, {
+            id: makeId(), type: 'text', role: 'system',
+            content: 'Error: Could not create session.',
+            streaming: false, order: orderCounterRef.current++,
+          }]);
+          return;
+        }
       }
 
       // Client-side slash commands
@@ -4027,7 +4031,7 @@
         }]);
         setExecuting(false);
       });
-    }, []);
+    }, [connect]);
 
     const stopExecution = useCallback(() => {
       const key = activeKeyRef.current;
@@ -4093,11 +4097,11 @@
       placeholderIdRef.current = null;
       setSessionId(null);
       setCwd(requestedCwd);
-      setSseStatus('connecting');
+      setSseStatus('idle');
       setSessions(prev => {
         const next = new Map(prev);
         next.set(key, {
-          status: 'connecting',
+          status: 'idle',
           turnCount: 0,
           cwd: requestedCwd,
           lastUpdated: nowIso,
@@ -4114,50 +4118,7 @@
         try { sseRef.current.close(); } catch {}
         sseRef.current = null;
       }
-
-      // Create REST session then open SSE
-      api.createSession({ bundleName: null, workingDir: requestedCwd })
-        .then(result => {
-          const sessionId = result.session_id;
-          if (!sessionId) throw new Error('No session_id');
-          handleWsMessage({
-            type: 'session_created',
-            session_id: sessionId,
-            cwd: result.working_dir || requestedCwd,
-            bundle: result.bundle_name || null,
-          }, key);
-          const sse = createSSEManager(sessionId, {
-            onMessage: (msg) => {
-              try { handleWsMessage(msg, key); } catch {}
-            },
-            onOpen: () => {
-              if (activeKeyRef.current === key) setSseStatus('connected');
-            },
-            onError: () => {
-              if (activeKeyRef.current === key) setSseStatus('disconnected');
-            },
-          });
-          if (activeKeyRef.current === key) {
-            sseRef.current = sse;
-            setSseStatus('connected');
-          }
-          setSessions(prev => {
-            const next = new Map(prev);
-            const cur = next.get(key) || {};
-            next.set(key, { ...cur, sse, status: 'idle', serverCwd: requestedCwd });
-            return next;
-          });
-        })
-        .catch(err => {
-          console.error('[chat] failed to create new session', err);
-          if (activeKeyRef.current === key) setSseStatus('disconnected');
-          setSessions(prev => {
-            const next = new Map(prev);
-            next.delete(key);
-            return next;
-          });
-        });
-    }, [handleWsMessage]);
+    }, []);
 
     const resumeHistorySession = useCallback((key) => {
       const target = sessions.get(key);

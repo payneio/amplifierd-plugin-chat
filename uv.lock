@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "amplifierd"
 version = "0.1.0"
-source = { git = "https://github.com/payneio/amplifierd#1ca0c73d83f76557eb1888a6efadcde3dce1fdc4" }
+source = { git = "https://github.com/payneio/amplifierd#9997d029dd866d50a86c461534818a6bddc85bce" }
 dependencies = [
     { name = "amplifier-core" },
     { name = "amplifier-foundation" },
