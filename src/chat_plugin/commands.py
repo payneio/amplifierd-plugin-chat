@@ -133,6 +133,110 @@ class CommandProcessor:
         except Exception:
             return {"type": "config", "data": {"config": {}}}
 
+    def _cmd_modes(self, args: list[str], *, session_id: str | None = None) -> dict:
+        handle = self._require_session(session_id)
+        if not handle:
+            return self._error("No active session")
+        try:
+            state = handle.session.coordinator.session_state
+            discovery = state.get("mode_discovery")
+            if not discovery:
+                return {"type": "modes", "data": {"modes": [], "active_mode": None}}
+            modes = discovery.list_modes()
+            return {
+                "type": "modes",
+                "data": {
+                    "active_mode": state.get("active_mode"),
+                    "modes": [
+                        {"name": n, "description": d, "source": s} for n, d, s in modes
+                    ],
+                },
+            }
+        except Exception:
+            return {"type": "modes", "data": {"modes": [], "active_mode": None}}
+
+    def _cmd_mode(self, args: list[str], *, session_id: str | None = None) -> dict:
+        handle = self._require_session(session_id)
+        if not handle:
+            return self._error("No active session")
+        try:
+            state = handle.session.coordinator.session_state
+            current = state.get("active_mode")
+
+            if not args or args[0] == "off":
+                state["active_mode"] = None
+                return {
+                    "type": "mode_changed",
+                    "data": {"active_mode": None, "previous_mode": current},
+                }
+
+            mode_name = args[0]
+            trailing_args = args[1:]
+            trailing = None
+
+            if trailing_args and trailing_args[-1] == "off":
+                state["active_mode"] = None
+                return {
+                    "type": "mode_changed",
+                    "data": {"active_mode": None, "previous_mode": current},
+                }
+            elif trailing_args and trailing_args[-1] != "on":
+                trailing = " ".join(trailing_args)
+            # if trailing_args == ["on"], trailing stays None
+
+            # Toggle: if already active, deactivate
+            if mode_name == current and trailing is None:
+                state["active_mode"] = None
+                return {
+                    "type": "mode_changed",
+                    "data": {"active_mode": None, "previous_mode": current},
+                }
+
+            # Validate mode exists
+            discovery = state.get("mode_discovery")
+            if discovery and not discovery.find(mode_name):
+                avail = [n for n, _, _ in discovery.list_modes()]
+                return {
+                    "type": "error",
+                    "data": {
+                        "message": f"Unknown mode: {mode_name}",
+                        "available_modes": avail,
+                    },
+                }
+
+            state["active_mode"] = mode_name
+            result: dict = {
+                "type": "mode_changed",
+                "data": {"active_mode": mode_name, "previous_mode": current},
+            }
+            if trailing:
+                result["data"]["trailing_prompt"] = trailing
+            return result
+        except Exception as e:
+            return self._error(f"Mode command failed: {e}")
+
+    def _cmd_rename(self, args: list[str], *, session_id: str | None = None) -> dict:
+        handle = self._require_session(session_id)
+        if not handle:
+            return self._error("No active session")
+        name = " ".join(args) if args else "Untitled"
+        return {"type": "renamed", "data": {"session_id": session_id, "name": name}}
+
+    def _cmd_fork(self, args: list[str], *, session_id: str | None = None) -> dict:
+        handle = self._require_session(session_id)
+        if not handle:
+            return self._error("No active session")
+        if not args:
+            return {
+                "type": "fork_info",
+                "data": {"turn_count": handle.turn_count, "session_id": session_id},
+            }
+        try:
+            turn = int(args[0])
+            return {"type": "forked", "data": {"parent_id": session_id, "turn": turn}}
+        except ValueError:
+            return self._error(f"Invalid turn number: {args[0]}")
+
     def _cmd_help(self, args: list[str], **_: Any) -> dict:
         return {
             "type": "help",
