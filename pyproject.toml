@@ -12,7 +12,7 @@ dependencies = [
 test = ["pytest", "pytest-anyio", "httpx"]
 
 [project.entry-points."amplifierd.plugins"]
-chat = "chat_plugin:create_router"
+chat = "chat_plugin"
 
 [build-system]
 requires = ["hatchling"]
