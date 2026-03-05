@@ -2352,7 +2352,7 @@
       setAnnouncement('Session renamed to ' + trimmed);
       setTimeout(() => setSaved(false), 300);
       try {
-        const resp = await fetch(`/api/sessions/${session.sessionId}`, {
+        const resp = await fetch(`${API_BASE}/sessions/${session.sessionId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: trimmed }),
